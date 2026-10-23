@@ -143,3 +143,19 @@ def feature_columns(all_columns, use_lender_assessment=False):
     if not use_lender_assessment:
         excluded |= set(LENDER_ASSESSMENT)
     return [c for c in all_columns if c not in excluded]
+
+
+# text that is really an ordered number
+NUMERIC_FROM_TEXT = ["term", "emp_length"]
+
+# genuine categories, encoded in slice 3
+CATEGORICAL = [
+    "home_ownership",
+    "verification_status",
+    "purpose",
+    "zip_code",
+    "addr_state",
+    "initial_list_status",
+    "application_type",
+    "disbursement_method",
+]
