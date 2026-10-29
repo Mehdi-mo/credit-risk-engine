@@ -148,6 +148,9 @@ def feature_columns(all_columns, use_lender_assessment=False):
 # text that is really an ordered number
 NUMERIC_FROM_TEXT = ["term", "emp_length"]
 
+
+# ---- slice 3: categorical decisions ------------------------------------
+
 # genuine categories, encoded in slice 3
 CATEGORICAL = [
     "home_ownership",
@@ -159,3 +162,48 @@ CATEGORICAL = [
     "application_type",
     "disbursement_method",
 ]
+
+# ---- slice 3: categorical decisions -------------------------------------
+CAT_ONE_HOT = [
+    'purpose',              # 13 levels, no order; small_business 32.5% vs car 15.6%
+    'home_ownership',       # MORTGAGE 17.8% < OWN 22.2% < RENT 24.2%
+    'verification_status',  # all 3 levels differ; records LC's suspicion, not the borrower
+    'application_type',     # Joint 28.5% vs Individual 20.7%; 396 rows is enough
+]
+
+CAT_FOLD_RARE = {
+    # column: (levels to fold, what to fold them into)
+    'purpose':        (['wedding', 'renewable_energy', 'house', 'moving', 'vacation'], 'other'),
+    'home_ownership': (['ANY'], 'MORTGAGE'),   # 2 rows; folded into the largest group
+}
+
+CAT_DROP = [
+    'initial_list_status',  # 21.0% vs 20.4% - an LC listing mechanism, no signal
+    'disbursement_method',  # 37.3% looks huge but rests on 67 rows; noise
+]
+
+CAT_FAIRNESS_ONLY = [
+    'addr_state',           # geography proxies race in US lending
+    'zip_code',             # same, plus 845 levels
+]
+
+# ---- slice 3: in the file, never in the model ---------------------------
+NON_FEATURES = ['target', 'issue_d', 'earliest_cr_line', 'zip_code', 'addr_state']
+
+
+# ---- slice 3: fields LC added in 2016 - missingness is a step at the
+# ---- train/test boundary, so they act as a date in disguise
+DROP_TIME_DEPENDENT = ['open_rv_24m', 'max_bal_bc', 'total_bal_il', 'open_il_12m', 'open_il_24m', 'open_acc_6m', 'open_act_il', 'open_rv_12m', 'all_util', 'inq_fi', 'log_total_bal_il', 'inq_last_12m', 'total_cu_tl', 'mths_since_rcnt_il', 'il_util', 'mths_since_rcnt_il_missing', 'log_total_bal_il']
+
+
+# ---- slice 3: delinquency history - flat flag AND flat recency.
+# ---- LC screened on it, so no variation survives among approved loans.
+DROP_DELINQ_FAMILY = [
+    'mths_since_last_delinq',
+    'mths_since_recent_bc_dlq',
+    'mths_since_recent_revol_delinq',
+    'mths_since_last_major_derog',
+    'mths_since_last_record',
+    'mths_since_recent_bc',
+]
+
