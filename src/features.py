@@ -75,9 +75,17 @@ def restrict_years(df, year_min=YEAR_MIN, year_max=YEAR_MAX):
 # ---- the split: everything below is fitted on train only ----------------
 
 def split_by_time(df, quantile=0.8):
+    """Split by date. Rows come back in time order, index reset.
+
+    Masking keeps the right rows but not their order, and TimeSeriesSplit
+    cuts by position - so the sort is not cosmetic.
+    """
+    # mergesort is stable: loans sharing an issue_d keep their relative order
+    df = df.sort_values('issue_d', kind='mergesort').reset_index(drop=True)
+
     cut = df['issue_d'].quantile(quantile)
-    train = df[df['issue_d'] <  cut].copy()
-    test  = df[df['issue_d'] >= cut].copy()
+    train = df[df['issue_d'] <  cut].copy().reset_index(drop=True)
+    test  = df[df['issue_d'] >= cut].copy().reset_index(drop=True)
     return train, test, cut
 
 
