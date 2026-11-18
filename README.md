@@ -7,9 +7,10 @@ Built in ten slices, each finished and written up before the next starts. The
 point of the project is not a high score — it is a model whose numbers can be
 trusted, with every decision and every failure documented.
 
-**Slices 1–6 are complete.** The model below is a logistic regression. Slice 6
+**Slices 1–7 are complete.** The model below is a logistic regression. Slice 6
 tried to beat it with gradient boosting, did the work properly, and failed —
-which is why it is still here.
+which is why it is still here. Slice 7 then found that the model it beat is
+measurably fairer than it is.
 
 ---
 
