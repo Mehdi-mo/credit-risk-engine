@@ -7,10 +7,12 @@ Built in ten slices, each finished and written up before the next starts. The
 point of the project is not a high score — it is a model whose numbers can be
 trusted, with every decision and every failure documented.
 
-**Slices 1–7 are complete.** The model below is a logistic regression. Slice 6
+**Slices 1–8 are complete.** The model below is a logistic regression. Slice 6
 tried to beat it with gradient boosting, did the work properly, and failed —
 which is why it is still here. Slice 7 then found that the model it beat is
-measurably fairer than it is.
+measurably fairer than it is. Slice 8 priced the decision in euros, and found
+that the fairness gap slice 7 measured belonged to the threshold rather than to
+the model.
 
 ---
 
@@ -47,7 +49,7 @@ the diagonal before; afterwards they scatter around it.
 The trade is close to linear: every extra 10 points of approvals costs roughly
 2 points of bad rate, the whole way across. There is no kink, so no operating
 point can be read off the data — it can only come from what a default costs
-against what a lost customer earns. That is slice 8.
+against what a lost customer earns. Slice 8 measures both.
 
 ---
 
@@ -131,6 +133,108 @@ be used.
 
 ---
 
+## What a decision is worth
+
+Slice 8 turns the probability into euros. Every economic parameter is measured
+from realised cash flows on **training loans only**, written to
+`models/economics.json`, and only then applied.
+
+The cash-flow columns slice 2 stripped out of the modelling table were never
+removed from the raw sample, so loss given default did not have to be assumed:
+
+| parameter | measured on train | varies with risk? |
+|---|---|---|
+| Loss given default | **0.8973** | **no** — 0.889 to 0.905 across all seven grades |
+| Exposure at default | 0.651 | **yes** — 0.529 for A, 0.790 for F |
+| Margin on a repaid loan | +0.182 | **yes** — +0.096 for A, +0.422 for G |
+
+Riskier borrowers default *earlier*, so more principal is still outstanding when
+they go. Recovery on that principal is about ten cents in the euro and does not
+care who the borrower was.
+
+### One threshold is the wrong shape
+
+![Break-even by grade](figures/slice08_break_even_by_grade.png)
+
+Approve while `p < margin / (margin + loss)`. Because loss per euro is nearly
+flat while margin triples from A to G, the break-even probability triples too —
+**0.185 to 0.567**. Slice 5's single 0.20 threshold is about right for grade A
+and far too strict for everything below it.
+
+### Choosing the threshold without looking at an outcome costs 4,000 euros
+
+| | |
+|---|---|
+| threshold chosen on predicted profit | 0.43 |
+| threshold that was best on true outcomes | 0.45 |
+| profit captured by the blind choice | **99.89%** |
+
+This is the money version of the calibration curve above, and it is the clearest
+argument in the project for having calibrated at all. An uncalibrated score can
+be ranked; it cannot be put into a break-even formula and come out right.
+
+### The provably optimal rule loses anyway
+
+Approving exactly the loans with positive expected profit **is** the maximum of
+the predicted-profit curve — no global threshold can beat it there, and none
+does (+219k). On the true outcomes it loses by 68k, because the model
+over-predicts risk by 5.8 points in one disagreement set and under-predicts by
+8.0 in the other. A global threshold only needs the ranking right near one cut
+point. The per-loan rule needs the probability right everywhere, and spends its
+entire edge in the tails where calibration is weakest.
+
+Kept as a negative result, with a testable prediction attached: improve tail
+calibration and the ordering should flip.
+
+### There is no one right threshold
+
+![Sensitivity surface](figures/slice08_sensitivity.png)
+
+Across loss-given-default from 0.70 to 1.00 and margin from 0.6× to 1.4×, the
+best threshold runs **0.21 to 0.68**. The margin assumption moves it more than
+the loss assumption — and margin is the parameter measured from a book that
+prepaid early, so it is also the one most likely to be wrong next vintage.
+
+### The fairness gap belonged to the threshold
+
+![Fairness frontier](figures/slice08_fairness_frontier.png)
+
+| threshold | thin-file approval | thick-file | gap |
+|---|---|---|---|
+| 0.18 (worst) | 27.7% | 42.5% | −14.7 pts |
+| 0.20 (slice 5) | 36.7% | 50.1% | −13.4 pts |
+| **0.43 (profit-maximising)** | **90.6%** | **89.9%** | **+0.7 pts** |
+
+Slice 7's 13.4 point access gap reproduces exactly at the threshold where it was
+measured — and vanishes at the threshold slice 8 chose for entirely unrelated
+reasons. Forcing equal access at 0.20 instead does not cost money, it **makes
+39k more**, because 0.20 is too strict for everyone and the thin-file group is
+where the strictness lands hardest.
+
+That alignment is specific to this book at this threshold and is not a general
+result — the two objectives genuinely conflict whenever base rates differ, which
+slice 7 proved for this data. What can be said is that the gap this project
+worried about was a symptom of a badly chosen operating point, not a price that
+had to be paid.
+
+### What the euro totals are not
+
+![Three profit curves](figures/slice08_profit_curves.png)
+
+Realised cash on the test book is negative at every threshold, and that is an
+artifact. Slice 3's censoring dropped unresolved loans, which bites harder the
+later the vintage: repaid loans ran 26.1 months in train and **11.9 in test**, so
+the test book's good loans are a sample of fast prepayers that were cut off
+before they had paid their interest.
+
+So profit is computed three ways, not two — predicted, true-outcome-with-train-
+economics, and fully realised — which separates calibration error from the
+censoring distortion instead of blending them into one misleading number.
+Relative comparisons between thresholds are sound. The euro totals are not a
+forecast.
+
+---
+
 ## What this project is actually about
 
 Most of the work is in not fooling yourself.
@@ -189,9 +293,9 @@ why they produced plausible output, and what caught them:
 | 4 | Baseline model — logistic regression, L1, collinearity | done |
 | 5 | Honest evaluation — PR curves, calibration, bootstrap intervals | done |
 | 6 | **Strong model — gradient boosting, pre-registered tuning, paired tests** | **done** |
-| 7 | Explainability — SHAP, feature importance, fairness checks | next |
-| 8 | Business value — expected loss, approval thresholds, profit curve | planned |
-| 9 | Deployment — API, Docker, dashboard | planned |
+| 7 | Explainability — SHAP, feature importance, fairness checks | done |
+| 8 | **Business value — measured LGD, per-loan break-even, profit curves, fairness frontier** | **done** |
+| 9 | Deployment — API, Docker, dashboard | next |
 | 10 | Monitoring — drift detection, retraining, CI | planned |
 
 Write-ups live in [`docs/`](docs/). They carry the reasoning, not just the
@@ -211,6 +315,13 @@ results:
   search, why the win condition was not met, why two completely different models
   leave the identical residual curve after calibration, and why the most
   accurate model built cannot be used
+- [`slice_07_explainability.md`](docs/slice_07_explainability.md) — why
+  withholding geography worked and withholding credit history did not, and three
+  SHAP calls that silently moved the reference point while passing their own
+  checks
+- [`slice_08_business_value.md`](docs/slice_08_business_value.md) — why loss
+  given default did not have to be assumed, why two profit curves were not
+  enough, and why the provably optimal decision rule still loses
 
 ---
 
@@ -221,10 +332,11 @@ credit-risk-engine/
   data/raw/         downloaded CSV, never edited      (gitignored)
   data/processed/   files the code creates            (gitignored)
   notebooks/        02 explore, 03 features, 04 baseline,
-                    05 evaluation, 06 strong model
-  src/              load_raw.py, columns.py, features.py
+                    05 evaluation, 06 strong model, 07 explainability
+  src/              load_raw.py, columns.py, features.py, predict.py,
+                    money.py, economics.py, profit.py
   models/           baseline_logreg.joblib, calibrated_logreg.joblib,
-                    calibrated_lgbm.joblib
+                    calibrated_lgbm.joblib, economics.json
   figures/          the plots this README uses
   docs/             one write-up per slice
 ```
@@ -258,6 +370,15 @@ python src/load_raw.py
 
 Then run the notebooks in order. Each one writes the files the next one reads.
 
+Slices 7 and 8 run from `src/` instead, each asserting its own inputs:
+
+```bash
+python -m src.predict     # reproduces every published probability, cold
+python -m src.money       # price and realised cash per loan
+python -m src.economics   # fits the economics on train, writes economics.json
+python -m src.profit      # curves, sensitivity, fairness, five figures
+```
+
 ## Known limitations
 
 - Only finished loans are in the data, which biases recent vintages in both
@@ -270,6 +391,12 @@ Then run the notebooks in order. Each one writes the files the next one reads.
   deliberately not applied, because the problem was found in the test set.
   Slice 9 applies it as an input guard.
 - Feature distributions widen steadily across time. Not corrected. Slice 10.
-- The test set has now been used three times, each time for reporting rather
-  than selection. Slices 7–10 have to keep that discipline or the 0.6908 stops
-  meaning anything.
+- Absolute profit is not a real number. Censoring makes the euro totals a
+  statement about a snapshot, not a forecast. Slice 8 measures the size of that
+  distortion rather than hiding it.
+- Only funded loans exist, so slice 8's 90% approval rate is 90% of a pool
+  Lending Club had already screened. Nothing here speaks to applicants it turned
+  away.
+- The test set has now been used five times, each time for reporting rather
+  than selection. Slices 9 and 10 have to keep that discipline or the 0.6908
+  stops meaning anything.
