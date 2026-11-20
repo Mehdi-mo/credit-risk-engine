@@ -1,0 +1,13 @@
+# keep the build context small and the data out of the image
+.git
+.venv
+.env
+data
+notebooks
+figures
+docs
+**/__pycache__
+**/*.pyc
+.ipynb_checkpoints
+.vscode
+.pytest_cache

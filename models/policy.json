@@ -1,0 +1,16 @@
+{
+  "what": "the lending decision the service applies. Written by hand in slice 9 - this file is a decision, not a fit.",
+  "rule": "approve when probability < threshold",
+  "threshold": 0.43,
+  "apply_loan_to_income_guard": true,
+  "reasons_returned": 4,
+  "chosen_by": "slice 8, curve A: the threshold that maximises predicted profit on the test features under the train-fitted economics. No outcome was used to choose it.",
+  "why_not_0.20": "slice 5's 0.20 was picked before the economics existed. Under the measured margin it turns away loans that are expected to make money: 47.9% approval against 90.0%. It is also where the thin-file approval gap is 13.4 points; at 0.43 the gap is 0.7.",
+  "why_not_per_loan": "approving when p < that loan's own break-even is the optimum of curve A, but on true outcomes it lost 68k to the global threshold, because it leans on the probabilities in the tails where this model is least calibrated. Slice 8 kept that as a negative result. Not shipped until tail calibration is re-tested.",
+  "assumption": "0.43 is correct only if the measured margin is. The margin was measured on a book that prepaid early and is the weakest number in the project.",
+  "sensitivity": {
+    "lgd_0.70_to_1.00": [0.38, 0.60],
+    "margin_0.6x_to_1.4x": [0.24, 0.55],
+    "both_together": [0.21, 0.68]
+  }
+}

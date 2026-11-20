@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Credit risk engine</title>
+<!--
+  The dashboard of the credit risk engine (slice 9).
+
+  It holds no model, no threshold and no field list. Everything on the page
+  comes from the service: GET /contract draws the form, GET /example fills
+  it, POST /reasons decides. If the threshold or a field changes in models/,
+  this page changes with it and nobody edits this file.
+-->
+<style>
+  :root {
+    --bg: #FCFCFB; --panel: #FFFFFF; --ink: #2E2D2B; --body: #52514E; --muted: #8A8884;
+    --line: #E4E2DC; --accent: #1F6F6B; --accent-soft: #E3EFEE;
+    --bad: #A6402E; --bad-soft: #F6E7E3; --warn: #8A6200; --warn-soft: #FAF1D9;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--body);
+         font: 15px/1.5 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
+  header { padding: 28px 32px 18px; border-bottom: 1px solid var(--line); }
+  h1 { margin: 0; font: 600 22px/1.2 Georgia, "Times New Roman", serif; color: var(--ink); }
+  header p { margin: 6px 0 0; color: var(--muted); max-width: 70ch; }
+  main { display: grid; grid-template-columns: minmax(340px, 460px) 1fr; gap: 28px;
+         padding: 24px 32px 48px; max-width: 1240px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 18px; } header { padding: 20px 18px 14px; } }
+
+  h2 { font: 600 12px/1 "Segoe UI", system-ui, sans-serif; letter-spacing: .08em;
+       text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
+
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+  .presets button { border: 1px solid var(--line); background: var(--bg); color: var(--body);
+       padding: 6px 12px; border-radius: 999px; font: inherit; font-size: 13px; cursor: pointer; }
+  .presets button:hover { border-color: var(--accent); color: var(--accent); }
+
+  .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+  label { display: block; font-size: 12.5px; color: var(--muted); }
+  label span.name { display: block; margin-bottom: 4px; min-height: 2.6em; display: flex; align-items: flex-end; }
+  input, select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+       font: inherit; color: var(--ink); background: #fff; }
+  input:focus, select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  input.problem, select.problem { border-color: var(--bad); background: var(--bad-soft); }
+  details { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
+  summary { cursor: pointer; color: var(--accent); font-size: 14px; }
+  details .fields { margin-top: 14px; }
+  .go { margin-top: 20px; width: 100%; padding: 12px; border: 0; border-radius: 8px;
+        background: var(--accent); color: #fff; font: 600 15px/1 inherit; cursor: pointer; }
+  .go:hover { filter: brightness(1.08); }
+  .hint { font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+
+  .verdict { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+  .verdict .word { font: 600 40px/1 Georgia, serif; letter-spacing: -.01em; }
+  .approve .word { color: var(--accent); } .decline .word { color: var(--bad); }
+  .notscored .word { color: var(--warn); font-size: 30px; }
+  .verdict .p { font-size: 15px; color: var(--body); }
+  .verdict .p b { color: var(--ink); font-size: 20px; font-variant-numeric: tabular-nums; }
+
+  .gauge { position: relative; height: 12px; background: var(--line); border-radius: 6px; margin: 30px 0 34px; }
+  .gauge .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px; }
+  .approve .gauge .fill { background: var(--accent); } .decline .gauge .fill { background: var(--bad); }
+  .gauge .tick { position: absolute; top: -7px; bottom: -7px; width: 2px; background: var(--ink); }
+  .gauge .tick span { position: absolute; top: -20px; left: 50%; transform: translateX(-50%);
+        white-space: nowrap; font-size: 12px; color: var(--ink); }
+  .gauge .ends { position: absolute; top: 18px; left: 0; right: 0; display: flex;
+        justify-content: space-between; font-size: 11.5px; color: var(--muted); }
+
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; margin-top: 6px; }
+  @media (max-width: 700px) { .cols { grid-template-columns: 1fr; } }
+  .reason { margin-bottom: 14px; }
+  .reason .top { display: flex; justify-content: space-between; gap: 10px; color: var(--ink); font-size: 14px; }
+  .reason .top .num { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+  .reason .bar { height: 6px; border-radius: 3px; margin: 5px 0 4px; }
+  .up .bar { background: var(--bad); } .down .bar { background: var(--accent); }
+  .reason .sub { font-size: 12.5px; color: var(--muted); }
+
+  .flags { margin-top: 20px; display: flex; flex-direction: column; gap: 8px; }
+  .flag { background: var(--warn-soft); color: #5E4300; border-radius: 6px; padding: 8px 12px; font-size: 13.5px; }
+  .flag.err { background: var(--bad-soft); color: #7A2C1E; }
+  .small { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line);
+           font-size: 12.5px; color: var(--muted); }
+  .small code { font: 12px/1 Consolas, Menlo, monospace; color: var(--body); }
+  .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Credit risk engine</h1>
+  <p>Enter a loan application. The service returns the chance of default, the decision, and the
+     factors behind it. A portfolio project on Lending Club data from 2013 to 2017, not a lending system.</p>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>The application</h2>
+    <div class="presets" id="presets"></div>
+    <form id="form" autocomplete="off">
+      <div class="fields" id="main-fields"></div>
+      <details>
+        <summary id="more-summary">The rest of the credit file</summary>
+        <div class="fields" id="more-fields"></div>
+      </details>
+      <button class="go" type="submit">Decide</button>
+      <p class="hint">Empty a field to see what the service does with a blank. Some blanks are
+         filled the way training filled them; the others are refused.</p>
+    </form>
+  </section>
+
+  <section class="panel" id="result"><div class="empty">Loading the contract from the service…</div></section>
+</main>
+
+<script>
+// Which fields sit above the fold. A layout choice only - the fields
+// themselves, their labels and their allowed values come from GET /contract.
+const MAIN = ['loan_amnt', 'term', 'purpose', 'int_rate', 'annual_inc', 'emp_length',
+              'home_ownership', 'verification_status', 'dti', 'fico_range_low',
+              'acc_open_past_24mths', 'inq_last_6mths'];
+
+// Changes laid on top of the example applicant from GET /example.
+const PRESETS = {
+  'Typical applicant': {},
+  'Stretched': { loan_amnt: 35000, term: 60, annual_inc: 42000, dti: 34, purpose: 'small_business',
+                 home_ownership: 'RENT', acc_open_past_24mths: 11, inq_last_6mths: 3,
+                 fico_range_low: 665, fico_range_high: 669, int_rate: 21.5 },
+  'Strong file': { loan_amnt: 8000, annual_inc: 120000, dti: 8, fico_range_low: 780, fico_range_high: 784,
+                   acc_open_past_24mths: 1, purpose: 'credit_card', int_rate: 6.5 },
+  'Blanks in the file': { emp_length: null, mths_since_recent_inq: null, bc_util: null, int_rate: 12.5 },
+  'Outside the training data': { loan_amnt: 40000, annual_inc: 2500, fico_range_low: 620,
+                                 fico_range_high: 624, int_rate: 24 },
+  'Broken on purpose': { annual_inc: -40000, term: 48, purpose: 'educational' },
+};
+
+let contract = [], example = {};
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = v => typeof v === 'number'
+  ? (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString('en') : (Math.round(v * 100) / 100).toString())
+  : String(v).replace(/_/g, ' ');
+
+function control(f) {
+  const id = 'f_' + f.field;
+  let input;
+  if (f.choices) {
+    // an extra, deliberately invalid, option can be injected by a preset
+    input = `<select id="${id}" data-field="${f.field}" data-kind="${f.kind}">` +
+            f.choices.map(c => `<option value="${esc(c)}">${esc(fmt(c))}</option>`).join('') + `</select>`;
+  } else if (f.kind === 'date') {
+    input = `<input type="date" id="${id}" data-field="${f.field}" data-kind="date">`;
+  } else {
+    input = `<input type="number" step="any" id="${id}" data-field="${f.field}" data-kind="number">`;
+  }
+  return `<label><span class="name">${esc(f.meaning)}</span>${input}</label>`;
+}
+
+function fill(app) {
+  for (const f of contract) {
+    const el = $('f_' + f.field), v = app[f.field];
+    el.classList.remove('problem');
+    if (el.tagName === 'SELECT') {
+      el.querySelectorAll('option[data-extra]').forEach(o => o.remove());
+      if (v != null && ![...el.options].some(o => o.value === String(v))) {
+        el.insertAdjacentHTML('beforeend', `<option data-extra value="${esc(v)}">${esc(fmt(v))} (not allowed)</option>`);
+      }
+      el.value = v == null ? el.options[0].value : String(v);
+    } else {
+      el.value = v == null ? '' : v;
+    }
+  }
+}
+
+function read() {
+  const app = {};
+  for (const f of contract) {
+    const el = $('f_' + f.field), raw = el.value;
+    let v;
+    if (raw === '') v = null;
+    else if (f.kind === 'number' || f.kind === 'choice') v = Number(raw);
+    else v = raw;
+    if (f.if_blank === 'left out' && v === null) continue;   // optional: send nothing
+    app[f.field] = v;
+  }
+  return app;
+}
+
+function reasonHtml(r, cls, max) {
+  const width = Math.max(4, Math.round(100 * Math.abs(r.contribution) / max));
+  let sub = `this application: <b>${esc(fmt(r.value))}</b>`;
+  if (r.typical !== undefined) sub += ` &nbsp;·&nbsp; typical borrower: ${esc(fmt(r.typical))}`;
+  if (r.note) sub += `<br>${esc(r.note)}`;
+  return `<div class="reason ${cls}"><div class="top"><span>${esc(r.label)}</span>
+          <span class="num">${r.contribution > 0 ? '+' : ''}${r.contribution.toFixed(2)}</span></div>
+          <div class="bar" style="width:${width}%"></div><div class="sub">${sub}</div></div>`;
+}
+
+function show(status, body) {
+  const box = $('result');
+  document.querySelectorAll('.problem').forEach(e => e.classList.remove('problem'));
+
+  if (status === 422) {
+    const items = body.rejected.map(p => {
+      const el = $('f_' + p.field); if (el) el.classList.add('problem');
+      return `<div class="flag err"><b>${esc(p.field)}</b> ${esc(p.problem)}</div>`;
+    }).join('');
+    box.innerHTML = `<h2>The decision</h2><div class="verdict notscored"><span class="word">Not scored</span>
+      <span class="p">The application breaks the input contract, so no probability was produced.</span></div>
+      <div class="flags">${items}</div>
+      <div class="small">Nothing is guessed. A value that is impossible, a category the model never saw
+      and a blank that training never had to fill are all refused, with every reason listed at once.</div>`;
+    return;
+  }
+  if (status !== 200) { box.innerHTML = `<div class="empty">The service answered ${status}.</div>`; return; }
+
+  const p = body.probability_of_default, t = body.threshold, fl = body.flags, rs = body.reasons;
+  const all = rs.raised_risk.concat(rs.lowered_risk);
+  const max = Math.max(...all.map(r => Math.abs(r.contribution)), 1e-9);
+
+  const flags = [];
+  if (fl.guard_applied) flags.push('The loan is larger, compared with income, than anything in the training data. It was scored at the training maximum.');
+  for (const o of fl.outside_training_range)
+    flags.push(`<b>${esc(o.field)}</b> = ${esc(fmt(o.value))} is outside what the model saw in training (${esc(fmt(o.train_min))} to ${esc(fmt(o.train_max))}).`);
+  if (fl.imputed.length) flags.push(`Left blank and filled the way training filled it: <b>${fl.imputed.map(esc).join(', ')}</b>.`);
+  for (const f of fl.folded) flags.push(`<b>${esc(f.field)}</b> "${esc(fmt(f.value))}" is too rare to learn from and is scored as "${esc(fmt(f.scored_as))}".`);
+  if (fl.credit_history_capped) flags.push('Credit history is capped at 50 years, as in training.');
+  if (body.review_recommended) flags.push('<b>Review recommended.</b> The model was asked about something it never saw.');
+
+  let be = '';
+  if (body.break_even) {
+    const b = body.break_even;
+    be = `At ${esc(fmt(b.int_rate))}% interest this loan breaks even at a default chance of
+          <b>${(100 * b.break_even_probability).toFixed(1)}%</b>
+          (earns ${(100 * b.margin_if_repaid).toFixed(1)}% if repaid, loses ${(100 * b.loss_if_default).toFixed(1)}% if not).
+          A per-loan rule would ${esc(b.per_loan_rule_would)}. That rule is not the one in force.<br><br>`;
+  }
+
+  const approve = body.decision === 'approve';
+  box.innerHTML = `<h2>The decision</h2>
+    <div class="${approve ? 'approve' : 'decline'}">
+      <div class="verdict"><span class="word">${approve ? 'Approve' : 'Decline'}</span>
+        <span class="p">chance of default <b>${(100 * p).toFixed(1)}%</b></span></div>
+      <div class="gauge"><div class="fill" style="width:${(100 * p).toFixed(2)}%"></div>
+        <div class="tick" style="left:${(100 * t).toFixed(2)}%"><span>decline from ${(100 * t).toFixed(0)}%</span></div>
+        <div class="ends"><span>0%</span><span>100%</span></div></div>
+    </div>
+    <div class="cols">
+      <div><h2>${approve ? 'What raised the risk' : 'Why it was declined'}</h2>
+        ${rs.raised_risk.map(r => reasonHtml(r, 'up', max)).join('') || '<div class="sub">Nothing raised it.</div>'}</div>
+      <div><h2>What lowered the risk</h2>
+        ${rs.lowered_risk.map(r => reasonHtml(r, 'down', max)).join('') || '<div class="sub">Nothing lowered it.</div>'}</div>
+    </div>
+    ${flags.length ? `<div class="flags">${flags.map(f => `<div class="flag">${f}</div>`).join('')}</div>` : ''}
+    <div class="small">${be}
+      Each factor is compared with a typical borrower in the training data. The numbers are in log-odds and,
+      with the base value, add up exactly to the chance shown above. They say what the model weighed,
+      not what would happen if a factor changed.<br><br>
+      ${esc(body.threshold_assumption)}<br><br>
+      <code>${esc(body.model_version)}</code> &nbsp; <code>${esc(body.economics_version)}</code> &nbsp;
+      <code>${esc(body.policy_version)}</code></div>`;
+}
+
+async function decide() {
+  const response = await fetch('/reasons', { method: 'POST', headers: {'Content-Type': 'application/json'},
+                                             body: JSON.stringify(read()) });
+  show(response.status, await response.json());
+}
+
+async function start() {
+  const c = await (await fetch('/contract')).json();
+  contract = c.fields;
+  example = await (await fetch('/example')).json();
+
+  const byName = Object.fromEntries(contract.map(f => [f.field, f]));
+  $('main-fields').innerHTML = MAIN.filter(n => byName[n]).map(n => control(byName[n])).join('');
+  const rest = contract.filter(f => !MAIN.includes(f.field));
+  $('more-fields').innerHTML = rest.map(control).join('');
+  $('more-summary').textContent = `The rest of the credit file (${rest.length} fields)`;
+
+  $('presets').innerHTML = Object.keys(PRESETS).map(n => `<button type="button">${esc(n)}</button>`).join('');
+  $('presets').querySelectorAll('button').forEach(b => b.onclick = () => {
+    fill({ ...example, ...PRESETS[b.textContent] }); decide();
+  });
+
+  // the two ends of the credit score range are always 4 apart
+  $('f_fico_range_low').addEventListener('input', e => {
+    if (e.target.value !== '') $('f_fico_range_high').value = Number(e.target.value) + 4;
+  });
+  $('form').onsubmit = e => { e.preventDefault(); decide(); };
+
+  fill(example); decide();
+}
+start();
+</script>
+</body>
+</html>

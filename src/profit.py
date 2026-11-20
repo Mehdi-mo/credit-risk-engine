@@ -45,6 +45,12 @@ import pandas as pd
 from .economics import PROC, ROOT, fit_economics, price_loans, save_params
 
 FIGURES = ROOT / 'figures'
+
+# Slice 9 switched the loan_to_income guard on, so the probabilities now come
+# from src/score_test.py. Slice 6's file is still on disk and still readable:
+# main(PREDICTIONS_SLICE6) reproduces every number slice 8 first published.
+PREDICTIONS = PROC / 'predictions_test_slice9.parquet'
+PREDICTIONS_SLICE6 = PROC / 'predictions_test_slice6.parquet'
 THRESHOLDS = np.round(np.arange(0.02, 1.0001, 0.01), 4)
 
 # matching slices 5-7
@@ -386,12 +392,15 @@ def disagreement(priced, p_col, global_t):
     return out
 
 
-def main():
+def main(predictions=PREDICTIONS, write=True):
+    """write=False computes everything and writes nothing - no csv, no figure,
+    no economics.json. src/guard_effect.py uses it to run this twice and compare."""
     money = pd.read_parquet(PROC / 'money_table.parquet')
     groups = pd.read_parquet(PROC / 'fairness_groups_test.parquet')
 
     params = fit_economics(money, verbose=False)
-    save_params(params)
+    if write:
+        save_params(params)
 
     test_raw = money[money['split'] == 'test'].reset_index(drop=True)
     assert test_raw['issue_d'].is_monotonic_increasing, 'test rows are not in issue_d order'
@@ -399,7 +408,9 @@ def main():
     assert np.array_equal(test_raw['issue_d'].to_numpy(), groups['issue_d'].to_numpy()), \
         'money table and fairness groups are not in the same row order'
 
-    published = pd.read_parquet(PROC / 'predictions_test_slice6.parquet')
+    published = pd.read_parquet(predictions)
+    assert np.array_equal(test_raw['target'].to_numpy(), published['target'].to_numpy()), \
+        'money table and the predictions are not in the same row order'
     test_raw['p_logreg'] = published['p_logreg'].to_numpy()
     test_raw['p_lgbm_tuned'] = published['p_lgbm_tuned'].to_numpy()
 
@@ -533,6 +544,11 @@ def main():
     print("  equal access is not bought here, it is found: 0.20 is too strict for")
     print("  everyone, and the thin-file group is where the strictness lands hardest.")
 
+    result = dict(curve=curve, surface=surface, frontier=frontier, table=table,
+                  priced=priced, chosen_t=chosen_t, params=params)
+    if not write:
+        return result
+
     # ---- write everything out --------------------------------------------
     curve.to_csv(PROC / 'slice08_profit_curve.csv', index=False)
     surface.to_csv(PROC / 'slice08_sensitivity.csv', index=False)
@@ -553,8 +569,7 @@ def main():
                  'slice08_fairness_frontier.csv', 'slice08_rules.csv'):
         print(f'  data/processed/{name}')
 
-    return dict(curve=curve, surface=surface, frontier=frontier, table=table,
-                priced=priced, chosen_t=chosen_t, params=params)
+    return result
 
 
 if __name__ == '__main__':

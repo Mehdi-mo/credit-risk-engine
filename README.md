@@ -7,12 +7,13 @@ Built in ten slices, each finished and written up before the next starts. The
 point of the project is not a high score — it is a model whose numbers can be
 trusted, with every decision and every failure documented.
 
-**Slices 1–8 are complete.** The model below is a logistic regression. Slice 6
+**Slices 1–9 are complete.** The model below is a logistic regression. Slice 6
 tried to beat it with gradient boosting, did the work properly, and failed —
 which is why it is still here. Slice 7 then found that the model it beat is
 measurably fairer than it is. Slice 8 priced the decision in euros, and found
 that the fairness gap slice 7 measured belonged to the threshold rather than to
-the model.
+the model. Slice 9 put it behind an API, and found that the model as saved
+could not be served at all.
 
 ---
 
@@ -235,6 +236,101 @@ forecast.
 
 ---
 
+## Serving it
+
+![The dashboard](figures/slice09_dashboard.png)
+
+```bash
+uvicorn service.app:app --port 8000     # then open http://localhost:8000
+```
+
+A loan application goes in as JSON. The decision, the probability, the
+threshold it was compared against, the reasons, and the version of every file
+that produced them come out.
+
+### The model could not be served
+
+`predict_calibrated` takes 71 engineered features. An application is an income,
+a loan amount and a credit file. Turning one into the other needs 59 medians,
+four category level lists and a choice of which columns get a log — and none of
+them had ever been saved. They existed as variables while notebook 03 ran. The
+bundle held a scaler, a model and a calibrator, and nothing outside that
+notebook could build their input.
+
+Slice 9 writes them to `models/feature_spec.json` and then proves the record is
+right by rebuilding all 26,280 saved feature rows from raw through the function
+the service calls. Notebook 03's own rebuild check had compared shapes and
+column names; a wrong median would have passed it.
+
+### "Reproduces training exactly" has three meanings
+
+The skew test feeds every raw test row to the service as the JSON a caller
+would send, and demands the saved features and the published probabilities
+back.
+
+| the same application, scored… | difference |
+|---|---|
+| as a batch, on the machine that wrote the files | **0.0** |
+| by the same code on another operating system | 2.2e-16 in the probability, 1.8e-15 in one feature |
+| on its own, instead of inside a batch | up to 3.3e-16, on 27.5% of rows |
+
+The second and third are the maths library rounding the last bit differently.
+Neither can move a decision — the closest any test probability comes to the
+threshold is 2.8e-4 — but that was measured, not assumed, and the tolerance is
+a documented setting whose default is exact.
+
+### The service holds no second copy of anything
+
+`src/decide.py` is the route from application to decision and computes nothing
+itself: contract, feature build, scoring chain, economics and reasons are each
+another file's function, the same ones the notebooks and scripts use. One test
+reads the service's source and fails if a step of the pipeline has been retyped
+there.
+
+### What happens to a bad application
+
+Decided and written down before the code
+([`slice_09_input_contract.md`](docs/slice_09_input_contract.md)), from one
+rule: the service may do to an application only what training did to a training
+row, and nothing is done silently.
+
+| | |
+|---|---|
+| blank where training had blanks (10 fields) | filled as training filled it, and flagged |
+| blank anywhere else | rejected |
+| impossible value — a negative income, a term of 48 | rejected |
+| possible, but outside what the model saw | scored, flagged, review recommended |
+| a category the model never saw | rejected — pandas would silently score it as the base level |
+
+None of the 5,378 test applications is rejected. 117 are flagged for asking for
+more than 35,000, the largest loan in training: in the test window loans go up
+to 40,000. The maximum moved after training ended, and the contract caught it
+as data.
+
+### The guard changed two probabilities and no decisions
+
+The `loan_to_income` cap slice 5 measured is now on. Log loss goes 0.5131 →
+0.5076, the largest probability 1.0000 → 0.9823, and the AUC does not move. Not
+one of 5,378 decisions changes, at 0.20, at 0.43 or under the per-loan rule. It
+is a calibration fix, not a decision fix.
+
+### Three declines in four have the same main reason
+
+![What the declines are made of](figures/slice09_decline_reasons.png)
+
+`POST /reasons` returns the factors that raised and lowered an applicant's risk,
+carried through the calibrator so they add up exactly to the probability in the
+same response. Over the 536 declined test applications, the main reason is the
+60-month term in 75%. The policy the threshold produces is close to "a 60-month
+loan needs something else going for it" — true to the model, and not yet a
+useful thing to tell an applicant.
+
+The service ships slice 8's threshold of 0.43, and never without its
+assumption: it is right only if the measured margin is, and every response says
+so.
+
+---
+
 ## What this project is actually about
 
 Most of the work is in not fooling yourself.
@@ -295,8 +391,8 @@ why they produced plausible output, and what caught them:
 | 6 | **Strong model — gradient boosting, pre-registered tuning, paired tests** | **done** |
 | 7 | Explainability — SHAP, feature importance, fairness checks | done |
 | 8 | **Business value — measured LGD, per-loan break-even, profit curves, fairness frontier** | **done** |
-| 9 | Deployment — API, Docker, dashboard | next |
-| 10 | Monitoring — drift detection, retraining, CI | planned |
+| 9 | **Deployment — input contract, train/serve skew test, reasons endpoint, Docker, dashboard** | **done** |
+| 10 | Monitoring — drift detection, retraining, CI | next |
 
 Write-ups live in [`docs/`](docs/). They carry the reasoning, not just the
 results:
@@ -322,6 +418,11 @@ results:
 - [`slice_08_business_value.md`](docs/slice_08_business_value.md) — why loss
   given default did not have to be assumed, why two profit curves were not
   enough, and why the provably optimal decision rule still loses
+- [`slice_09_deployment.md`](docs/slice_09_deployment.md) — why the saved model
+  could not be served, what "reproduces exactly" turned out to mean, and why a
+  guard that fixed the worst prediction in the project changed no decision
+- [`slice_09_input_contract.md`](docs/slice_09_input_contract.md) — reject,
+  impute or score with a flag, decided field by field before any code
 
 ---
 
@@ -334,11 +435,18 @@ credit-risk-engine/
   notebooks/        02 explore, 03 features, 04 baseline,
                     05 evaluation, 06 strong model, 07 explainability
   src/              load_raw.py, columns.py, features.py, predict.py,
-                    money.py, economics.py, profit.py
+                    money.py, economics.py, profit.py,
+                    contract.py, decide.py, reasons.py, feature_spec.py,
+                    score_test.py, guard_effect.py, service_report.py,
+                    tolerance.py
+  service/          app.py (the API), dashboard.html
+  tests/            test_skew.py, test_contract.py, test_service.py
   models/           baseline_logreg.joblib, calibrated_logreg.joblib,
-                    calibrated_lgbm.joblib, economics.json
+                    calibrated_lgbm.joblib, economics.json,
+                    feature_spec.json, policy.json
   figures/          the plots this README uses
   docs/             one write-up per slice
+  Dockerfile        the service, with no data in the image
 ```
 
 The shipped bundle holds three fitted objects that only work in one order —
@@ -379,6 +487,23 @@ python -m src.economics   # fits the economics on train, writes economics.json
 python -m src.profit      # curves, sensitivity, fairness, five figures
 ```
 
+Slice 9 adds the service and its checks:
+
+```bash
+pip install -r requirements-service.txt   # fastapi, uvicorn, pytest, httpx
+
+python -m src.score_test       # guard on; writes predictions_test_slice9.parquet
+python -m src.feature_spec     # writes feature_spec.json, proves the rebuild
+python -m src.guard_effect     # what the guard changed downstream
+python -m src.service_report   # the service on the whole test book
+python -m pytest tests -q      # 115 tests, the skew test among them
+
+uvicorn service.app:app --port 8000
+
+docker build -t credit-risk-engine .
+docker run --rm -p 8000:8000 credit-risk-engine
+```
+
 ## Known limitations
 
 - Only finished loans are in the data, which biases recent vintages in both
@@ -387,9 +512,14 @@ python -m src.profit      # curves, sensitivity, fairness, five figures
 - No borrower below FICO 660 exists — Lending Club rejected them. The model can
   say nothing about that population, and every variable the lender screened on
   hard looks weaker than it is. Slice 6 puts a lower bound on the cost of this.
-- `loan_to_income` is unbounded. A cap is measured and documented but
-  deliberately not applied, because the problem was found in the test set.
-  Slice 9 applies it as an input guard.
+- `loan_to_income` was unbounded until slice 9, which applies the cap slice 5
+  measured as an input guard. The headline table above is the unguarded model
+  as slice 5 published it; with the guard on, average precision is 0.3925 and
+  log loss 0.5076, and no decision changes.
+- The service scores an application outside the training range and flags it. A
+  flag is "the model is guessing", not "this applicant is risky".
+- The reasons say what the model weighed against a typical borrower, not what
+  would change the answer.
 - Feature distributions widen steadily across time. Not corrected. Slice 10.
 - Absolute profit is not a real number. Censoring makes the euro totals a
   statement about a snapshot, not a forecast. Slice 8 measures the size of that
@@ -397,6 +527,6 @@ python -m src.profit      # curves, sensitivity, fairness, five figures
 - Only funded loans exist, so slice 8's 90% approval rate is 90% of a pool
   Lending Club had already screened. Nothing here speaks to applicants it turned
   away.
-- The test set has now been used five times, each time for reporting rather
-  than selection. Slices 9 and 10 have to keep that discipline or the 0.6908
-  stops meaning anything.
+- The test set has now been used six times, each time for reporting rather
+  than selection. Slice 10 has to keep that discipline or the 0.6908 stops
+  meaning anything.

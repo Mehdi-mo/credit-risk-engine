@@ -45,10 +45,18 @@ def add_row_features(df):
     return df
 
 
-def add_logs(df, threshold=SKEW_THRESHOLD):
-    """Squash long right tails so a linear model is not dragged by outliers."""
+def add_logs(df, threshold=SKEW_THRESHOLD, columns=None):
+    """Squash long right tails so a linear model is not dragged by outliers.
+
+    columns=None is the training path: the skew of the whole frame decides.
+    The service passes the list that decision produced (slice 9), because
+    one application has no skew - the choice was made once, on the build.
+    """
     df = df.copy()
-    cols = [c for c in LOG_CANDIDATES if c in df.columns and df[c].skew() > threshold]
+    if columns is None:
+        cols = [c for c in LOG_CANDIDATES if c in df.columns and df[c].skew() > threshold]
+    else:
+        cols = list(columns)
     return pd.concat([df, np.log1p(df[cols]).add_prefix('log_')], axis=1)
 
 
@@ -103,15 +111,57 @@ def apply_fills(frame, fill_values):
     return frame
 
 
+def category_levels(train):
+    """The level list of each one-hot column, fixed by train."""
+    return {col: sorted(train[col].dropna().unique()) for col in CAT_ONE_HOT}
+
+
+def encode_with_levels(frame, levels):
+    """One-hot with a level list that was fixed earlier. Works on one row."""
+    frame = frame.copy()
+    for col in CAT_ONE_HOT:
+        frame[col] = pd.Categorical(frame[col], categories=levels[col])
+    return pd.get_dummies(frame, columns=CAT_ONE_HOT, drop_first=True, dtype='int8')
+
+
 def encode_categories(train, test):
     """Level lists fixed by train, so both halves give identical columns."""
-    train, test = train.copy(), test.copy()
+    levels = category_levels(train)
+    return encode_with_levels(train, levels), encode_with_levels(test, levels)
 
-    for col in CAT_ONE_HOT:
-        cats = sorted(train[col].dropna().unique())
-        train[col] = pd.Categorical(train[col], categories=cats)
-        test[col]  = pd.Categorical(test[col],  categories=cats)
 
-    train = pd.get_dummies(train, columns=CAT_ONE_HOT, drop_first=True, dtype='int8')
-    test  = pd.get_dummies(test,  columns=CAT_ONE_HOT, drop_first=True, dtype='int8')
-    return train, test
+# ---- slice 9: the same build, for rows that arrive one at a time --------
+#
+# Until slice 9 the learned half of this file (the medians, the level lists,
+# which columns got a log) lived only in memory while notebook 03 ran. The
+# model bundle never held them, so nothing outside that notebook could turn a
+# raw application into the 71 features. fit_feature_spec() writes them down;
+# transform() is the build replayed from that record. It calls the functions
+# above - it is not a second copy of them - and src/feature_spec.py asserts
+# that it reproduces features_train.parquet and features_test.parquet.
+
+def prepare_rows(df):
+    """Every step that needs no learned number, in the build's order."""
+    df = add_row_features(df)
+    df = drop_decided_columns(df)
+    return fold_rare_levels(df)
+
+
+def fit_feature_spec(train):
+    """Everything the build learns, from train rows only, as plain values.
+
+    train: prepared rows (prepare_rows + add_logs), before any fill.
+    """
+    return {
+        'log_columns': [c[len('log_'):] for c in train.columns if c.startswith('log_')],
+        'fill_values': {k: float(v) for k, v in fit_fill_values(train).items()},
+        'levels': {k: [str(x) for x in v] for k, v in category_levels(train).items()},
+    }
+
+
+def transform(raw, spec):
+    """Raw application rows in, model-ready feature rows out. Learns nothing."""
+    df = prepare_rows(raw)
+    df = add_logs(df, columns=spec['log_columns'])
+    df = apply_fills(df, pd.Series(spec['fill_values']))
+    return encode_with_levels(df, spec['levels'])

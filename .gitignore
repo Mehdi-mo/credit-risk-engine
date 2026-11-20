@@ -6,6 +6,7 @@ data/raw/
 data/processed/
 
 .ipynb_checkpoints/
+.pytest_cache/
 
 .vscode/
 .env

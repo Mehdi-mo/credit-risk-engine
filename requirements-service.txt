@@ -1,0 +1,19 @@
+# What the scoring service needs to run - nothing else.
+# requirements.txt is the whole development environment (Jupyter, SHAP,
+# LightGBM, plotting, a Windows-only terminal package). The service loads one
+# scikit-learn model and four files, so its image stays small.
+#
+# The first four are pinned to the versions the model was trained and saved
+# with. A pickled scikit-learn model is only guaranteed to load in the version
+# that wrote it.
+numpy==2.5.4
+pandas==3.0.6
+scikit-learn==1.9.1
+joblib==1.6.0
+
+fastapi==0.165.0
+uvicorn==0.54.0
+
+# the image runs its own tests while it is built
+pytest==9.1.1
+httpx==0.28.1

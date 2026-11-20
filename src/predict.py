@@ -1,4 +1,4 @@
-"""Scoring chains for the credit risk engine (slice 7).
+"""Scoring chains for the credit risk engine (slice 7, guard switched on by slice 9).
 
 Each saved bundle holds fitted objects that only work in one order.
 These functions ARE that order, written in code rather than in prose,
@@ -52,11 +52,12 @@ def _select_columns(bundle, X_raw):
 
 # ---- the shipped model: scaler -> model -> calibrator -------------------
 
-def predict_calibrated(bundle, X_raw, apply_guard=False):
-    """Raw features in, honest probability out. Slice 5's calibrated logistic.
+def scale_features(bundle, X_raw, apply_guard=False):
+    """The first link of the logistic chain: select, guard, scale.
 
-    X_raw may carry extra columns; only the bundle's are used.
-    apply_guard is off by default, so this reproduces slice 5 exactly.
+    Split out in slice 9 because the reasons endpoint needs the scaled values
+    (a contribution is coefficient x scaled value) and must not rebuild them
+    its own way. predict_calibrated calls this, so there is still one chain.
     """
     _check_order(bundle, ORDER_LOGREG)
     X = _select_columns(bundle, X_raw)
@@ -69,11 +70,21 @@ def predict_calibrated(bundle, X_raw, apply_guard=False):
         X[GUARD_COLUMN] = X[GUARD_COLUMN].clip(
             upper=bundle['loan_to_income_guard_not_applied'])
 
-    X_scaled = pd.DataFrame(                       # keep the names, or sklearn warns
+    return pd.DataFrame(                           # keep the names, or sklearn warns
         bundle['scaler'].transform(X),
         columns=bundle['columns'],
         index=X.index,
     )
+
+
+def predict_calibrated(bundle, X_raw, apply_guard=False):
+    """Raw features in, honest probability out. Slice 5's calibrated logistic.
+
+    X_raw may carry extra columns; only the bundle's are used.
+    apply_guard is off by default, so this reproduces slice 5 exactly.
+    The service and src/score_test.py pass apply_guard=True (slice 9).
+    """
+    X_scaled = scale_features(bundle, X_raw, apply_guard)
     score = bundle['model'].decision_function(X_scaled)            # log-odds
     return bundle['calibrator'].predict_proba(score.reshape(-1, 1))[:, 1]
 
@@ -101,6 +112,7 @@ def predict_calibrated_lgbm(bundle, X_raw):
 
 if __name__ == '__main__':
     import joblib
+    from .tolerance import FLOAT_TOL
     from pathlib import Path
 
     ROOT = Path(__file__).resolve().parents[1]     # runs from any directory
@@ -130,7 +142,7 @@ if __name__ == '__main__':
 
         print(f'{name:20s} max difference {diff:.2e}  over {len(p):,} rows')
         # compare the ARRAYS, never a summary number - slice 4's lesson
-        assert diff == 0.0, f'{name} no longer reproduces {column}'
+        assert diff <= FLOAT_TOL, f'{name} no longer reproduces {column}'
 
     # and prove the guard is a real switch, not decoration
     b_log   = joblib.load(ROOT / 'models' / 'calibrated_logreg.joblib')
