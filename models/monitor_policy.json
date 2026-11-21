@@ -1,0 +1,25 @@
+{
+  "what": "what the monitor counts as a warning and as an alert. Written by hand in slice 10, BEFORE the monitor was run on anything - this file is a declaration, not a fit.",
+  "window": "calendar quarter, by application date",
+  "min_rows": 300,
+  "reference": "the 16,134 applications before 2016-01-01 that the model's weights were fitted on",
+  "psi": {
+    "bins": "10 quantile bins cut on the reference; a feature with 10 or fewer distinct values gets one bin per value",
+    "warn": 0.10,
+    "alert": 0.25,
+    "why_these": "0.10 and 0.25 are the usual industry rule of thumb. They are not tuned to this data.",
+    "noise_rule": "a PSI only counts if it is also above the 99th percentile of the PSI that random samples of the same size drawn from the reference give. A small window has a PSI above zero from sampling alone."
+  },
+  "share_of_requests": {
+    "outside_training_range": {"warn": 0.01, "alert": 0.05},
+    "rejected": {"warn": 0.01, "alert": 0.05},
+    "note": "written after slice 9 had already reported 2.9% outside the range over the whole test book, so these two numbers are not blind. They are round on purpose."
+  },
+  "needs_outcomes": {
+    "calibration_gap": {"warn": 0.03, "alert": 0.05,
+                        "rule": "|mean predicted - observed bad rate|, and only if the observed rate is outside the 95% binomial interval around the prediction"},
+    "auc": {"reference": 0.7107,
+            "rule": "warn when the quarter's 95% bootstrap interval lies entirely below the cross-validated training AUC from slice 4"}
+  },
+  "retrain_review": "two quarters in a row with an alert on the score PSI or on calibration. A review is a person looking, not an automatic retrain."
+}

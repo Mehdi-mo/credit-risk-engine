@@ -20,12 +20,16 @@ from typing import Any
 from fastapi import Body, FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 
+from src import requestlog
 from src.contract import IMPUTABLE, describe
 from src.decide import Engine
 
 HERE = Path(__file__).resolve().parent
 
 engine = Engine()          # four files, loaded once, at start-up
+
+# Off unless CRE_REQUEST_LOG names a file. src/monitor.py reads what it writes.
+request_log = requestlog.from_environment()
 
 app = FastAPI(
     title='Credit risk engine',
@@ -39,16 +43,25 @@ EXAMPLE = {'typical': {'summary': 'The middle value of every field in the traini
                        'value': engine.spec['typical_application']}}
 
 
-def _respond(result):
+def _decide(application, with_reasons):
+    # When the log is on, the reasons are worked out for every request, so the
+    # monitor can count what the declines are made of. They only go back to
+    # the caller who asked for them.
+    result = engine.decide(application, with_reasons=with_reasons or request_log is not None)
+    if request_log is not None:
+        request_log.write(application, result)
+
     # 422: the request was understood and breaks the contract
     if 'rejected' in result:
         return JSONResponse(status_code=422, content=result)
+    if not with_reasons:
+        result = {k: v for k, v in result.items() if k not in ('reasons', 'reasons_note')}
     return result
 
 
 @app.get('/health')
 def health():
-    return {'status': 'ok', **engine.versions}
+    return {'status': 'ok', 'request_log': request_log is not None, **engine.versions}
 
 
 @app.get('/version')
@@ -103,7 +116,7 @@ def example():
 def decision(application: dict[str, Any] = Body(..., openapi_examples=EXAMPLE)):
     """The decision, the probability, the threshold it was compared against,
     and the versions of the model and the economics that produced it."""
-    return _respond(engine.decide(application))
+    return _decide(application, with_reasons=False)
 
 
 @app.post('/reasons')
@@ -111,7 +124,7 @@ def reasons(application: dict[str, Any] = Body(..., openapi_examples=EXAMPLE)):
     """The same decision, with why: the factors that raised this applicant's
     risk the most and the ones that lowered it, compared with a typical
     borrower. For a declined application these are the reasons for the decline."""
-    return _respond(engine.decide(application, with_reasons=True))
+    return _decide(application, with_reasons=True)
 
 
 @app.get('/', include_in_schema=False)

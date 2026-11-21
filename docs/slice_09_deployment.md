@@ -20,15 +20,15 @@ do not. "The service reproduces training exactly" turned out to have three
 different meanings with three different answers. And at the shipped threshold
 three declines in four have the same main reason: the loan runs 60 months.**
 
-> **Where these runs were made.** Everything below was run on a Linux copy of
-> the repository, not on the Windows machine that wrote the data files. That
-> matters for exactly one thing, described in step 5: two checks that compare
-> against the saved feature files come out at 1.8e-15 on Linux and are expected
-> to be exactly 0.0 on Windows. Run the commands under *Reproducing* on the
-> Windows machine and replace this note with what they print. The Docker image
-> was written and its contents were tested in a clean environment with the
-> pinned packages, but **the image itself was not built** — the build machine
-> could not reach Docker Hub.
+> **Where these runs were made.** The slice was written and first run on a
+> Linux copy of the repository, and then run again on 2026-11-20 on the Windows
+> machine that wrote the data files: every command under *Reproducing* ran, all
+> 115 tests passed, the Docker image built (its own test step included), and
+> the container served the dashboard with the same answer for the typical
+> applicant, 16.6%, as the service run directly. The numbers in the tables
+> below are from the Linux run. That matters for exactly one thing, described
+> in step 5: the last-bit differences against the saved feature files (1.8e-15)
+> are what a second machine sees.
 
 ## What this slice adds
 
@@ -352,10 +352,12 @@ tests need only `models/` and run; the 10 skew tests need the processed data,
 find it missing, and skip with that reason. A build that finishes has loaded the
 model, built features and answered requests on that exact image.
 
-**Not verified:** the build itself. In place of it, the same eight packages at
-the same pins were installed into an empty environment containing only the
-files the Dockerfile copies: 105 passed, 10 skipped, and the service started and
-answered. That tests everything in the image except Docker.
+The image was built on the Windows machine with Docker Desktop 4.99 (Docker
+29.9.3, WSL 2). All ten build steps finished, the test step among them, and
+`docker run --rm -p 8000:8000 credit-risk-engine` served the dashboard. Before
+that, the same eight packages at the same pins had been installed into an empty
+Linux environment containing only the files the Dockerfile copies: 105 passed,
+10 skipped.
 
 ## Step 8 — the dashboard
 
@@ -421,8 +423,6 @@ The test set has now been used six times, every time for reporting.
 
 ## Known debt carried into slice 10
 
-- **Run this slice on the Windows machine** and replace the note at the top.
-  Build the Docker image.
 - The bundle key `loan_to_income_guard_not_applied` is now misnamed, and the
   bundle's stored `test_log_loss` of 0.5131 is the unguarded figure. The bundle
   was not rewritten: its hash is the model version, and nothing about the model

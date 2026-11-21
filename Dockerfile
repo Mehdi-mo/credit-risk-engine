@@ -4,7 +4,7 @@
 #   docker run --rm -p 8000:8000 credit-risk-engine
 #   then open http://localhost:8000
 #
-# What goes in: src/, service/, tests/ and four files from models/. No data.
+# What goes in: src/, service/, tests/ and five files from models/. No data.
 # The service never reads data/ - everything it learned is in models/.
 
 FROM python:3.13-slim
@@ -28,7 +28,7 @@ COPY tests/ tests/
 # named one by one, so the losing LightGBM bundle and anything else that
 # lands in models/ later does not ride along
 COPY models/calibrated_logreg.joblib models/feature_spec.json \
-     models/economics.json models/policy.json models/
+     models/economics.json models/policy.json models/monitor_policy.json models/
 
 # The image tests itself as it is built. The contract and service tests need
 # only models/ and run here; the skew tests need data/processed, which is not
@@ -39,8 +39,11 @@ RUN python -m pytest tests -q -p no:cacheprovider
 RUN useradd --create-home app
 USER app
 
+# A hosting platform tells the container which port to listen on through
+# PORT. Run by hand, nothing sets it and the service stays on 8000.
+ENV PORT=8000
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
-    CMD python -c "import urllib.request as u; u.urlopen('http://localhost:8000/health', timeout=2)"
+    CMD python -c "import os, urllib.request as u; u.urlopen('http://localhost:' + os.environ['PORT'] + '/health', timeout=2)"
 
-CMD ["uvicorn", "service.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "exec uvicorn service.app:app --host 0.0.0.0 --port ${PORT}"]

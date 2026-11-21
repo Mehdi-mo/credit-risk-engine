@@ -7,13 +7,15 @@ Built in ten slices, each finished and written up before the next starts. The
 point of the project is not a high score — it is a model whose numbers can be
 trusted, with every decision and every failure documented.
 
-**Slices 1–9 are complete.** The model below is a logistic regression. Slice 6
+**All ten slices are complete.** The model below is a logistic regression. Slice 6
 tried to beat it with gradient boosting, did the work properly, and failed —
 which is why it is still here. Slice 7 then found that the model it beat is
 measurably fairer than it is. Slice 8 priced the decision in euros, and found
 that the fairness gap slice 7 measured belonged to the threshold rather than to
 the model. Slice 9 put it behind an API, and found that the model as saved
-could not be served at all.
+could not be served at all. Slice 10 watched it over two years of later
+applications, and found that the one-number alarm stayed silent while a new
+product arrived and was scored 11 points too high.
 
 ---
 
@@ -240,8 +242,23 @@ forecast.
 
 ![The dashboard](figures/slice09_dashboard.png)
 
+The screenshot is the "Stretched" example: a 35,000 loan over 60 months on an
+income of 42,000. Declined at 91.6%, with the four factors that drove it.
+
+To try it yourself you only need Docker. No Python, no data:
+
 ```bash
-uvicorn service.app:app --port 8000     # then open http://localhost:8000
+git clone https://github.com/Mehdi-mo/credit-risk-engine.git
+cd credit-risk-engine
+docker build -t credit-risk-engine .
+docker run --rm -p 8000:8000 credit-risk-engine
+```
+
+Then open http://localhost:8000 and click the example buttons. Without Docker,
+from a Python environment with `requirements-service.txt` installed:
+
+```bash
+uvicorn service.app:app --port 8000
 ```
 
 A loan application goes in as JSON. The decision, the probability, the
@@ -331,6 +348,65 @@ so.
 
 ---
 
+## Watching it
+
+Slice 10 replays every application from 2016 and 2017 through the service, in
+date order, as if it had been running since training ended. The alert
+thresholds were written down before the replay was run.
+
+![Drift over time](figures/slice10_drift.png)
+
+### The summary alarm never rang
+
+Over eight quarters the PSI of the score stays below 0.02, against a warning
+level of 0.10, and the approval rate stays between 86% and 92%. A dashboard
+with those two lines would have been green for two years.
+
+Underneath, joint applications went from 10 of 16,134 training loans to about
+one application in nine.
+
+| | live applications | predicted | observed | declined |
+|---|---|---|---|---|
+| individual | 9,760 | 23.3% | 23.6% | 8.6% |
+| joint | 386 | **39.4%** | **28.0%** | **38.9%** |
+
+The per-feature PSI raised the alert (0.625). About half of the gap is a weight
+learned from ten loans. The rest is most likely that the model scores a
+two-income application on one income: the joint income is in the raw data and
+was never used. Found on later data, so it is written down and not repaired.
+
+### Outcomes come too late to monitor on
+
+| months after a quarter ends | outcomes known | bad rate a monitor sees | in the end |
+|---|---|---|---|
+| 6 | 21.5% | 7.5% | 23.8% |
+| 12 | 46.3% | 17.5% | 23.8% |
+| 24 | 87.1% | 24.1% | 23.8% |
+
+Early repayers are known at once; a default is booked months after the last
+payment. For the first year a monitor would conclude the book is far safer
+than it is.
+
+### Retraining on schedule would have made it worse
+
+The fit was moved out of the notebook into one function, which rebuilds the
+shipped model to 15 decimal places. Then a walk-forward test from 2017-04-01:
+
+| | AUC on the next 9 months | predicted | observed |
+|---|---|---|---|
+| shipped model | 0.6970 | 24.2% | 23.3% |
+| retrained on outcomes known that day | 0.6958 | **15.6%** | 23.3% |
+| retrained with hindsight | 0.6974 | 25.0% | 23.3% |
+
+With perfect hindsight, retraining buys nothing. Done the way it would really
+have been done, it learns from the early repayers that defaults are rare and
+loses its calibration. So the policy triggers a review by a person, not an
+automatic retrain.
+
+Every push runs the tests and builds the Docker image in GitHub Actions.
+
+---
+
 ## What this project is actually about
 
 Most of the work is in not fooling yourself.
@@ -392,7 +468,7 @@ why they produced plausible output, and what caught them:
 | 7 | Explainability — SHAP, feature importance, fairness checks | done |
 | 8 | **Business value — measured LGD, per-loan break-even, profit curves, fairness frontier** | **done** |
 | 9 | **Deployment — input contract, train/serve skew test, reasons endpoint, Docker, dashboard** | **done** |
-| 10 | Monitoring — drift detection, retraining, CI | next |
+| 10 | **Monitoring — request log, drift replay, label delay, walk-forward retraining, CI** | **done** |
 
 Write-ups live in [`docs/`](docs/). They carry the reasoning, not just the
 results:
@@ -423,6 +499,9 @@ results:
   guard that fixed the worst prediction in the project changed no decision
 - [`slice_09_input_contract.md`](docs/slice_09_input_contract.md) — reject,
   impute or score with a flag, decided field by field before any code
+- [`slice_10_monitoring.md`](docs/slice_10_monitoring.md) — why a stable score
+  hid a new product, why early outcomes lie, and why retraining on what was
+  known on the day breaks the model
 
 ---
 
@@ -438,12 +517,14 @@ credit-risk-engine/
                     money.py, economics.py, profit.py,
                     contract.py, decide.py, reasons.py, feature_spec.py,
                     score_test.py, guard_effect.py, service_report.py,
-                    tolerance.py
+                    tolerance.py, requestlog.py, monitor.py, retrain.py
   service/          app.py (the API), dashboard.html
-  tests/            test_skew.py, test_contract.py, test_service.py
+  tests/            test_skew.py, test_contract.py, test_service.py,
+                    test_monitor.py
   models/           baseline_logreg.joblib, calibrated_logreg.joblib,
                     calibrated_lgbm.joblib, economics.json,
-                    feature_spec.json, policy.json
+                    feature_spec.json, policy.json, monitor_policy.json
+  .github/          the CI workflow
   figures/          the plots this README uses
   docs/             one write-up per slice
   Dockerfile        the service, with no data in the image
@@ -496,12 +577,19 @@ python -m src.score_test       # guard on; writes predictions_test_slice9.parque
 python -m src.feature_spec     # writes feature_spec.json, proves the rebuild
 python -m src.guard_effect     # what the guard changed downstream
 python -m src.service_report   # the service on the whole test book
-python -m pytest tests -q      # 115 tests, the skew test among them
+python -m pytest tests -q      # 127 tests, the skew test among them
 
 uvicorn service.app:app --port 8000
 
 docker build -t credit-risk-engine .
 docker run --rm -p 8000:8000 credit-risk-engine
+```
+
+Slice 10 adds the monitor and the retraining test:
+
+```bash
+python -m src.monitor          # replays 2013-2017, tables and two figures
+python -m src.retrain          # rebuilds the shipped model, then walks forward
 ```
 
 ## Known limitations
@@ -520,13 +608,17 @@ docker run --rm -p 8000:8000 credit-risk-engine
   flag is "the model is guessing", not "this applicant is risky".
 - The reasons say what the model weighed against a typical borrower, not what
   would change the answer.
-- Feature distributions widen steadily across time. Not corrected. Slice 10.
+- Feature distributions drift steadily across time. Slice 10 measures it; the
+  score stays stable because the shifts cancel, which is not the same as safe.
 - Absolute profit is not a real number. Censoring makes the euro totals a
   statement about a snapshot, not a forecast. Slice 8 measures the size of that
   distortion rather than hiding it.
 - Only funded loans exist, so slice 8's 90% approval rate is 90% of a pool
   Lending Club had already screened. Nothing here speaks to applicants it turned
   away.
-- The test set has now been used six times, each time for reporting rather
-  than selection. Slice 10 has to keep that discipline or the 0.6908 stops
-  meaning anything.
+- Joint applications are scored on one applicant's income and are
+  over-predicted by about 11 points. Slice 10 found it and did not repair it.
+- The monitoring replay only holds loans that had finished by the snapshot,
+  about half of the 2016-2017 applications.
+- The test set has now been used seven times, each time for reporting rather
+  than selection.
